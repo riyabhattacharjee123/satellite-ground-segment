@@ -10,6 +10,7 @@ A home simulation of a distributed satellite ground segment. It models a small s
 - Each satellite calculates its own position (latitude, longitude, altitude) in real time
 - Each satellite sends that data over HTTP to a ground station
 - The ground station is a simple API that receives and logs the incoming telemetry
+- All telemetry is saved to a CSV file on disk so data is not lost when containers stop
 
 ---
 
@@ -19,6 +20,8 @@ A home simulation of a distributed satellite ground segment. It models a small s
 swarm-constellation/
     Dockerfile              builds the container image used by all services
     docker-compose.yaml     spins up the ground station and all four satellites
+    mission_data/
+        mission_log.csv     all telemetry received, written here automatically
     src/
         ground_station.py   the ground station, runs a web API on port 8000
         satellite_node.py   one satellite node, designed to run inside Docker
@@ -32,8 +35,11 @@ swarm-constellation/
 **ground_station.py**
 - Runs a FastAPI web server on port 8000
 - Exposes a `/telemetry` endpoint that satellites POST their data to
-- Logs every incoming data packet to the console
-- Also has a `/health` endpoint to confirm it is up
+- Every telemetry packet is written to `mission_data/mission_log.csv` with a timestamp
+- The CSV is capped at 2500 rows — once full, the oldest row is dropped to make room for the new one
+- If the CSV file is missing or unreadable, the ground station logs the error and carries on without crashing
+- Logs are structured with timestamps and log levels so they are easy to read in the terminal
+- Also has a `/health` endpoint to confirm it is up and a `/` root endpoint
 
 **satellite_node.py**
 - Represents a single satellite
@@ -58,6 +64,8 @@ swarm-constellation/
 - Defines 5 services: one ground station and four satellites (ALPHA, BRAVO, CHARLIE, DELTA)
 - Each satellite gets a different orbit position via environment variables
 - Satellites only start after the ground station is ready
+- The `mission_data/` folder is mounted as a volume so the CSV survives container restarts
+- Each service has log rotation configured to cap log file size at 5MB
 
 ---
 
@@ -78,6 +86,30 @@ docker compose up --build
 You will see the ground station start first, then the four satellites come online and begin sending telemetry. All logs appear in the same terminal.
 
 To stop everything, press `Ctrl+C`.
+
+---
+
+## Checking the mission log
+
+While the simulation is running, telemetry from all four satellites is saved automatically to:
+
+```
+swarm-constellation/mission_data/mission_log.csv
+```
+
+Each row looks like this:
+
+```
+2026-05-07 10:16:45, SAT-ALPHA, 47.92, 52.31, 428.1
+```
+
+The columns are: timestamp, satellite name, latitude, longitude, altitude in km.
+
+The file holds the latest 2500 rows. Once it hits that limit, each new row pushes the oldest one out. You can open it in any spreadsheet app or read it in the terminal with:
+
+```bash
+cat swarm-constellation/mission_data/mission_log.csv
+```
 
 ---
 
