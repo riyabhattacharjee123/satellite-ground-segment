@@ -1,23 +1,52 @@
-version: '3.8'
-
 services:
+  ground-station:
+    build: .
+    command: python ground_station.py
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+
   sat-alpha:
     build: .
+    command: python satellite_node.py
+    depends_on:
+      - ground-station
     environment:
       - SAT_NAME=SAT-ALPHA
+      - PYTHONUNBUFFERED=1
       - TLE_L1=1 25544U 98067A   26126.52495471  .00016717  00000-0  10270-3 0  9011
-      - TLE_L2=2 25544  51.6442  20.5153 0004445 220.3102 210.3102 15.48815327306221
+      - TLE_L2=2 25544  51.6442  10.5153 0004445 220.3102 210.3102 15.48815327306221
 
   sat-bravo:
     build: .
+    command: python satellite_node.py
+    depends_on:
+      - ground-station
     environment:
       - SAT_NAME=SAT-BRAVO
+      - PYTHONUNBUFFERED=1
       - TLE_L1=1 25544U 98067A   26126.52495471  .00016717  00000-0  10270-3 0  9011
-      - TLE_L2=2 25544  51.6442  40.5153 0004445 220.3102 210.3102 15.48815327306221
+      - TLE_L2=2 25544  51.6442  30.5153 0004445 220.3102 210.3102 15.48815327306221
 
   sat-charlie:
     build: .
+    command: python satellite_node.py
+    depends_on:
+      - ground-station
     environment:
       - SAT_NAME=SAT-CHARLIE
+      - PYTHONUNBUFFERED=1
       - TLE_L1=1 25544U 98067A   26126.52495471  .00016717  00000-0  10270-3 0  9011
-      - TLE_L2=2 25544  51.6442  60.5153 0004445 220.3102 210.3102 15.48815327306221
+      - TLE_L2=2 25544  51.6442  50.5153 0004445 220.3102 210.3102 15.48815327306221
+
+  sat-delta:
+    build: .
+    command: python satellite_node.py
+    depends_on:
+      - ground-station
+    environment:
+      - SAT_NAME=SAT-DELTA
+      - PYTHONUNBUFFERED=1
+      - TLE_L1=1 25544U 98067A   26126.52495471  .00016717  00000-0  10270-3 0  9011
+      - TLE_L2=2 25544  51.6442  70.5153 0004445 220.3102 210.3102 15.48815327306221
