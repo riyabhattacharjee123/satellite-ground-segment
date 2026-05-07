@@ -4,8 +4,15 @@ services:
     command: python ground_station.py
     ports:
       - "8000:8000"
+    volumes:
+      - ./mission_data:/app/data
     environment:
       - PYTHONUNBUFFERED=1
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
 
   sat-alpha:
     build: .
@@ -17,6 +24,11 @@ services:
       - PYTHONUNBUFFERED=1
       - TLE_L1=1 25544U 98067A   26126.52495471  .00016717  00000-0  10270-3 0  9011
       - TLE_L2=2 25544  51.6442  10.5153 0004445 220.3102 210.3102 15.48815327306221
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
 
   sat-bravo:
     build: .
@@ -28,6 +40,11 @@ services:
       - PYTHONUNBUFFERED=1
       - TLE_L1=1 25544U 98067A   26126.52495471  .00016717  00000-0  10270-3 0  9011
       - TLE_L2=2 25544  51.6442  30.5153 0004445 220.3102 210.3102 15.48815327306221
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
 
   sat-charlie:
     build: .
@@ -39,6 +56,11 @@ services:
       - PYTHONUNBUFFERED=1
       - TLE_L1=1 25544U 98067A   26126.52495471  .00016717  00000-0  10270-3 0  9011
       - TLE_L2=2 25544  51.6442  50.5153 0004445 220.3102 210.3102 15.48815327306221
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
 
   sat-delta:
     build: .
@@ -50,3 +72,8 @@ services:
       - PYTHONUNBUFFERED=1
       - TLE_L1=1 25544U 98067A   26126.52495471  .00016717  00000-0  10270-3 0  9011
       - TLE_L2=2 25544  51.6442  70.5153 0004445 220.3102 210.3102 15.48815327306221
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
