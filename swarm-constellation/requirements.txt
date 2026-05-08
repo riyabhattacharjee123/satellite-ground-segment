@@ -1,0 +1,6 @@
+skyfield
+fastapi
+uvicorn
+requests
+pandas
+numpy
