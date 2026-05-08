@@ -11,7 +11,7 @@ TLE_L2 = os.getenv("TLE_L2")
 # Target Coordinates: Darmstadt, Germany (Mission Center / Ground Station Location)
 TARGET_LAT = 49.87
 TARGET_LON = 8.65
-THRESHOLD_KM = 500.0  # Reach-zone radius in kilometers
+THRESHOLD_KM = 5000.0  # Reach-zone radius in kilometers
 
 data_dir = '/app/data'
 load = Loader(data_dir)
