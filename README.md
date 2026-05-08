@@ -20,8 +20,12 @@ A home simulation of a distributed satellite ground segment. It models a small s
 swarm-constellation/
     Dockerfile              builds the container image used by all services
     docker-compose.yaml     spins up the ground station and all four satellites
+    requirements.txt        all Python dependencies in one place
     mission_data/
-        mission_log.csv     all telemetry received, written here automatically
+        mission_log.csv                     live telemetry, written automatically
+        darmstadt_training_baseline.csv     synthetic temperature data for Darmstadt
+    scripts/
+        generate_training_data.py   generates the Darmstadt baseline dataset
     src/
         ground_station.py   the ground station, runs a web API on port 8000
         satellite_node.py   one satellite node, designed to run inside Docker
@@ -45,8 +49,21 @@ swarm-constellation/
 - Represents a single satellite
 - Reads its name and orbit data from environment variables (set in docker-compose)
 - Uses the Skyfield library to calculate where it is right now
-- Every 5 seconds it sends its position to the ground station via HTTP POST
+- Every 5 seconds it calculates its distance to Darmstadt, Germany using the Haversine formula
+- If the satellite is within 500 km of Darmstadt, it logs an access window alert
+- Sends its position to the ground station via HTTP POST every 5 seconds
 - If the ground station is unreachable, it logs a warning and tries again next cycle
+
+**generate_training_data.py**
+- A standalone script in the `scripts/` folder, run it once to generate baseline data
+- Simulates one full year of hourly surface temperature readings for Darmstadt
+- Uses a seasonal sine wave, a daily sine wave, and random noise to make the data realistic
+- Saves 8760 rows to `mission_data/darmstadt_training_baseline.csv`
+- This file can be used later as a reference to compare against live satellite readings
+
+**requirements.txt**
+- Lists all Python packages the project depends on
+- Install everything at once with `pip install -r requirements.txt`
 
 **constellation.py**
 - A simpler standalone script, runs directly on your machine without Docker
@@ -113,6 +130,39 @@ cat swarm-constellation/mission_data/mission_log.csv
 
 ---
 
+## Generating the Darmstadt training baseline
+
+This is a one-time step. It creates a synthetic temperature dataset that represents what normal conditions over Darmstadt look like across a full year.
+
+First, make sure all dependencies are installed:
+
+```bash
+pip install -r requirements.txt
+```
+
+Then run the script:
+
+```bash
+cd swarm-constellation
+python3 scripts/generate_training_data.py
+```
+
+The output file will appear at:
+
+```
+swarm-constellation/mission_data/darmstadt_training_baseline.csv
+```
+
+If you get a permission error on the `mission_data/` folder, it is because Docker created that folder as root when you last ran the containers. Fix it with:
+
+```bash
+sudo chmod 777 swarm-constellation/mission_data/
+```
+
+This gives your user write access to the folder so the script can save the file.
+
+---
+
 ## How to run locally (no Docker)
 
 If you just want to test the orbital propagation without containers:
@@ -132,3 +182,5 @@ This runs three satellites directly in your terminal and updates every 2 seconds
 - [FastAPI](https://fastapi.tiangolo.com/) for the ground station API
 - [uvicorn](https://www.uvicorn.org/) to serve the API
 - [requests](https://requests.readthedocs.io/) for satellite HTTP communication
+- [pandas](https://pandas.pydata.org/) for generating and handling the training dataset
+- [numpy](https://numpy.org/) for the sine wave and noise calculations in the training data
