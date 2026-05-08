@@ -19,6 +19,8 @@ services:
     command: python satellite_node.py
     depends_on:
       - ground-station
+    volumes:
+      - ./mission_data:/app/data
     environment:
       - SAT_NAME=SAT-ALPHA
       - PYTHONUNBUFFERED=1
@@ -35,6 +37,8 @@ services:
     command: python satellite_node.py
     depends_on:
       - ground-station
+    volumes:
+      - ./mission_data:/app/data
     environment:
       - SAT_NAME=SAT-BRAVO
       - PYTHONUNBUFFERED=1
@@ -51,6 +55,8 @@ services:
     command: python satellite_node.py
     depends_on:
       - ground-station
+    volumes:
+      - ./mission_data:/app/data
     environment:
       - SAT_NAME=SAT-CHARLIE
       - PYTHONUNBUFFERED=1
@@ -67,6 +73,8 @@ services:
     command: python satellite_node.py
     depends_on:
       - ground-station
+    volumes:
+      - ./mission_data:/app/data
     environment:
       - SAT_NAME=SAT-DELTA
       - PYTHONUNBUFFERED=1

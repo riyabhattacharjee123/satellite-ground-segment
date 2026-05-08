@@ -1,83 +1,82 @@
 import time
 import os
-import requests # This is the "phone" the satellite uses to call home
-from skyfield.api import Loader, wgs84, EarthSatellite
 import math
+import random
+import requests
+from skyfield.api import Loader, wgs84, EarthSatellite
+from saliency_engine import SaliencyEngine  # AI module
+
+# Configurations
+TARGET_LAT, TARGET_LON = 49.87, 8.65
+THRESHOLD_KM = 5000.0 
+BASELINE_PATH = "/app/mission_data/darmstadt_training_baseline.csv"
 
 SAT_NAME = os.getenv("SAT_NAME", "UNKNOWN_SAT")
 TLE_L1 = os.getenv("TLE_L1")
 TLE_L2 = os.getenv("TLE_L2")
 
-# Target Coordinates: Darmstadt, Germany (Mission Center / Ground Station Location)
-TARGET_LAT = 49.87
-TARGET_LON = 8.65
-THRESHOLD_KM = 5000.0  # Reach-zone radius in kilometers
+# 1. Initialize the "AI detection engine with the baseline data"
+engine = SaliencyEngine(BASELINE_PATH)
+engine.train_model()
 
-data_dir = '/app/data'
-load = Loader(data_dir)
+# 2. Initialize the Physics
+load = Loader('/app/data')
 ts = load.timescale()
-
 sat = EarthSatellite(TLE_L1, TLE_L2, SAT_NAME, ts)
 
-def calculate_haversine_distance(lat1, lon1, lat2, lon2):
-    """
-    Computes the great-circle distance between two points on a sphere 
-    using the Haversine formula. Returns distance in kilometers.
-    """
-    R = 6371.0  # Average radius of the Earth in km
-    
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    delta_phi = math.radians(lat2 - lat1)
-    delta_lambda = math.radians(lon2 - lon1)
-    
-    a = (math.sin(delta_phi / 2.0) ** 2 +
-         math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2.0) ** 2)
-    
-    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
-    return R * c
+def get_distance(lat1, lon1, lat2, lon2):
+    R = 6371.0 # Earth radius in km
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    d_lat, d_lon = math.radians(lat2-lat1), math.radians(lon2-lon1)
+    a = math.sin(d_lat/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(d_lon/2)**2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
 
-print(f"[{SAT_NAME}] Systems Online. Commencing orbit...")
+print(f"[{SAT_NAME}] Deployment Complete. AI Engine Active.")
 
 try:
     while True:
         now = ts.now()
-        geocentric = sat.at(now)
-        subpoint = wgs84.subpoint(geocentric)
+        subpoint = wgs84.subpoint(sat.at(now))
+        curr_lat, curr_lon = subpoint.latitude.degrees, subpoint.longitude.degrees
+        current_alt = subpoint.elevation.km
         
-        current_lat = round(subpoint.latitude.degrees, 2)
-        current_lon = round(subpoint.longitude.degrees, 2)
-        current_alt = round(subpoint.elevation.km, 1)
-
-        # Calculate orbital distance to our target area (Darmstadt)
-        distance_to_target = round(calculate_haversine_distance(
-            current_lat, current_lon, TARGET_LAT, TARGET_LON
-        ), 1)
-
-        # Evaluate if we are within the coverage/sensing window
-        is_target_in_range = distance_to_target <= THRESHOLD_KM
-
-
-        # 1. Prepare the data packet
+        dist = get_distance(curr_lat, curr_lon, TARGET_LAT, TARGET_LON)
+        
+        # Default Payload
         payload = {
             "sat_id": SAT_NAME,
-            "lat": current_lat,
-            "lon": current_lon,
-            "alt": current_alt
+            "lat": round(curr_lat, 2),
+            "lon": round(curr_lon, 2),
+            "alt": round(current_alt, 1),
+            "is_anomaly": False,
+            "temp": None
         }
 
-        # 2. Downlink log printout
-        if is_target_in_range:
-            print(f"[{SAT_NAME}] !!! ACCESS WINDOW !!! Over Darmstadt | Distance: {distance_to_target} km | Triggering sensor read...")
-        else:
-            print(f"[{SAT_NAME}] Normal Orbiting | Distance to Darmstadt: {distance_to_target} km")
+        # MISSION LOGIC: If in range, perform "Sensor Read"
+        if dist <= THRESHOLD_KM:
+            # Step 2.2 Simulation: Generate a temperature
+            # 95% chance of normal (15C), 5% chance of anomaly (50C)
+            sample_temp = 50.0 if random.random() > 0.95 else random.uniform(10, 20)
+            
+            # Step 3.3: Ask the AI
+            is_weird = engine.analyze_reading(sample_temp)
+            
+            payload["temp"] = round(sample_temp, 2)
+            payload["is_anomaly"] = is_weird
+            
+            if is_weird:
+                print(f"[{SAT_NAME}] ALERT: Anomalous temp detected: {sample_temp}°C! Downlinking priority data.")
+            else:
+                print(f"[{SAT_NAME}] Passing Darmstadt: Normal temp ({sample_temp}°C).")
 
-        # 3. Try to transmit data to Ground Station
+        # Send to Ground Station
         try:
             response = requests.post("http://ground-station:8000/telemetry", json=payload, timeout=2)
-            # Log the status of transmission
-        except Exception as e:
-            print(f"[{SAT_NAME}] Ground Station unreachable.")
-        
-        time.sleep(5) 
+            if response.status_code == 422:
+                print(f"[{SAT_NAME}] Schema Error: {response.json()}")
+        except:
+            pass
+            
+        time.sleep(5)
 except KeyboardInterrupt:
-    print(f"[{SAT_NAME}] Signal Lost.")
+    print("Signal Lost.")
