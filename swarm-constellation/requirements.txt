@@ -1,8 +1,15 @@
-skyfield
+
 fastapi
 uvicorn
+# Physical & Orbital Libraries
+skyfield
 requests
+# AI & Data Science Libraries
 pandas
-numpy
 scikit-learn
 joblib
+numpy
+# NEW: Earth Observation & Sensor Simulation
+xarray
+netCDF4
+scipy

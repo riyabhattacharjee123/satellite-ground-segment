@@ -5,19 +5,32 @@ import random
 import requests
 from skyfield.api import Loader, wgs84, EarthSatellite
 from saliency_engine import SaliencyEngine  # AI module
+import xarray as xr # NetCDF processing
+
+# Paths
+BASELINE_PATH = "/app/data/darmstadt_training_baseline.csv"
+SENSOR_DATA_PATH = "/app/data/global_sensor_data.nc" # Our NetCDF
 
 # Configurations
 TARGET_LAT, TARGET_LON = 49.87, 8.65
-THRESHOLD_KM = 5000.0 
-BASELINE_PATH = "/app/mission_data/darmstadt_training_baseline.csv"
-
+THRESHOLD_KM = 5000.0
 SAT_NAME = os.getenv("SAT_NAME", "UNKNOWN_SAT")
 TLE_L1 = os.getenv("TLE_L1")
 TLE_L2 = os.getenv("TLE_L2")
 
+
 # 1. Initialize the "AI detection engine with the baseline data"
 engine = SaliencyEngine(BASELINE_PATH)
 engine.train_model()
+
+# Load the NetCDF into memory
+# We use 'decode_times=True' to handle the time dimension   
+try:
+    earth_data = xr.open_dataset(SENSOR_DATA_PATH)
+    print(f"[{SAT_NAME}] Sensor Array Online. NetCDF Loaded.")
+except Exception as e:
+    print(f"[{SAT_NAME}] CRITICAL: Could not load NetCDF: {e}")
+    earth_data = None
 
 # 2. Initialize the Physics
 load = Loader('/app/data')
@@ -53,21 +66,31 @@ try:
         }
 
         # MISSION LOGIC: If in range, perform "Sensor Read"
-        if dist <= THRESHOLD_KM:
-            # Step 2.2 Simulation: Generate a temperature
-            # 95% chance of normal (15C), 5% chance of anomaly (50C)
-            sample_temp = 50.0 if random.random() > 0.95 else random.uniform(10, 20)
+        if dist <= THRESHOLD_KM:            
+            # 3. SAMPLE THE NETCDF (The Digital Twin Sensor)
+            # We use .sel() with method='nearest' to find the closest pixel to our orbit
+            try:
+                # Selecting the LST (Land Surface Temperature) at our current location
+                reading = earth_data.lst.sel(
+                    lat=curr_lat, 
+                    lon=curr_lon, 
+                    method="nearest"
+                ).values[0] # [0] because it's a 1-item array
             
-            # Step 3.3: Ask the AI
-            is_weird = engine.analyze_reading(sample_temp)
-            
-            payload["temp"] = round(sample_temp, 2)
-            payload["is_anomaly"] = is_weird
-            
-            if is_weird:
-                print(f"[{SAT_NAME}] ALERT: Anomalous temp detected: {sample_temp}°C! Downlinking priority data.")
-            else:
-                print(f"[{SAT_NAME}] Passing Darmstadt: Normal temp ({sample_temp}°C).")
+                # Step 3.3: Ask the AI
+                is_weird = engine.analyze_reading(reading)
+                
+                payload["temp"] = round(float(reading), 2)
+                payload["is_anomaly"] = is_weird
+                
+                if is_weird:
+                    print(f"[{SAT_NAME}] ALERT: Anomalous temp detected: {reading}°C! Downlinking priority data.")
+                else:
+                    print(f"[{SAT_NAME}] Passing Darmstadt: Normal temp ({reading}°C).")
+
+            except Exception as e:
+                print(f"[{SAT_NAME}] Sensor Read Failed: {e}")
+
 
         # Send to Ground Station
         try:
