@@ -27,8 +27,10 @@ swarm-constellation/
     mission_data/
         mission_log.csv                     live telemetry, written automatically
         darmstadt_training_baseline.csv     synthetic temperature data for Darmstadt
+        global_sensor_data.nc               synthetic global temperature map (NetCDF)
     scripts/
         generate_training_data.py   generates the Darmstadt baseline dataset
+        generate_sensor_data.py     generates the global NetCDF sensor map
     src/
         ground_station.py   the ground station, runs a web API on port 8000
         satellite_node.py   one satellite node, designed to run inside Docker
@@ -57,7 +59,8 @@ swarm-constellation/
 - Uses the Skyfield library to calculate where it is right now
 - Every 5 seconds it calculates its distance to Darmstadt, Germany using the Haversine formula
 - Outside the 5000 km range: sends a simple heartbeat with just position data
-- Inside the 5000 km range (access window): samples a temperature, runs it through the AI, and sends telemetry with an anomaly flag
+- Inside the 5000 km range (access window): reads the real surface temperature from the NetCDF map at its current lat/lon using xarray, runs it through the AI, and sends telemetry with an anomaly flag
+- If the NetCDF file is not available, it falls back to a simulated temperature reading so the satellite keeps running
 - If the ground station is unreachable, it carries on silently and tries again next cycle
 
 **saliency_engine.py**
@@ -72,7 +75,14 @@ swarm-constellation/
 - Simulates one full year of hourly surface temperature readings for Darmstadt
 - Uses a seasonal sine wave, a daily sine wave, and random noise to make the data realistic
 - Saves 8760 rows to `mission_data/darmstadt_training_baseline.csv`
-- This file can be used later as a reference to compare against live satellite readings
+- This file is used by the SaliencyEngine to learn what normal temperatures look like
+
+**generate_sensor_data.py**
+- Generates a synthetic global surface temperature map and saves it as a NetCDF file
+- Creates a 180x360 lat/lon grid with base temperatures modelled on real climate patterns (warm at equator, cold at poles)
+- Injects a heatwave anomaly of 50°C within a 2-degree radius of Darmstadt so the satellites have something to detect
+- Saves to `mission_data/global_sensor_data.nc`
+- Run this once before starting the Docker simulation so the satellites have a sensor map to read from
 
 **requirements.txt**
 - Lists all Python packages the project depends on
@@ -86,7 +96,8 @@ swarm-constellation/
 
 **Dockerfile**
 - Builds a lightweight Python 3.11 container
-- Copies `requirements.txt` in first and installs all dependencies from it
+- Installs system libraries (`libhdf5-dev`, `libnetcdf-dev`) needed to compile the `netCDF4` package
+- Copies `requirements.txt` in first and installs all Python dependencies from it
 - Copies all source files into the container
 - Used by all services in docker-compose
 
@@ -176,6 +187,31 @@ This gives your user write access to the folder so the script can save the file.
 
 ---
 
+## Generating the global sensor map
+
+This is also a one-time step, and it must be run before starting Docker. It creates the NetCDF file that satellites use as their digital twin sensor during access windows.
+
+```bash
+cd swarm-constellation
+python3 scripts/generate_sensor_data.py
+```
+
+The output file will appear at:
+
+```
+swarm-constellation/mission_data/global_sensor_data.nc
+```
+
+The file contains a full global temperature grid with a synthetic 50°C heatwave injected at Darmstadt. When a satellite enters the access window and reads this file at its current coordinates, the AI will flag it as an anomaly and send a priority telemetry packet.
+
+If you get a permission error, run this first:
+
+```bash
+sudo chmod 777 swarm-constellation/mission_data/
+```
+
+---
+
 ## How to run locally (no Docker)
 
 If you just want to test the orbital propagation without containers:
@@ -199,3 +235,6 @@ This runs three satellites directly in your terminal and updates every 2 seconds
 - [numpy](https://numpy.org/) for the sine wave and noise calculations in the training data
 - [scikit-learn](https://scikit-learn.org/) for the IsolationForest anomaly detection model
 - [joblib](https://joblib.readthedocs.io/) for model serialisation used by scikit-learn internally
+- [xarray](https://docs.xarray.dev/) for reading and querying the NetCDF sensor map
+- [netCDF4](https://unidata.github.io/netcdf4-python/) as the backend for reading NetCDF files
+- [scipy](https://scipy.org/) as a fallback backend for xarray NetCDF support
