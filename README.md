@@ -14,6 +14,8 @@ A home simulation of a distributed satellite ground segment. It models a small s
 - Each satellite carries an AI brain that is trained on a year of synthetic Darmstadt temperature data
 - When a satellite flies over Darmstadt, it samples a temperature and asks the AI if it is normal or anomalous
 - Anomalous readings are flagged and sent as priority telemetry to the ground station
+- All telemetry is stored in a PostgreSQL database for permanent mission history
+- A Grafana dashboard is included for live visualization of satellite positions, temperatures, and anomalies
 
 ---
 
@@ -46,11 +48,12 @@ swarm-constellation/
 - Runs a FastAPI web server on port 8000
 - Exposes a `/telemetry` endpoint that satellites POST their data to
 - Each telemetry packet can carry: satellite ID, lat, lon, alt, surface temperature, and an anomaly flag
-- Every telemetry packet is written to `mission_data/mission_log.csv` with a timestamp
+- Writes every telemetry packet to PostgreSQL using SQLAlchemy as the primary store
+- Also writes to `mission_data/mission_log.csv` as a backup in case the database is unavailable
 - The CSV is capped at 2500 rows — once full, the oldest row is dropped to make room for the new one
-- If the CSV file is missing or unreadable, the ground station logs the error and carries on without crashing
+- `/health` confirms the API is up
+- `/health/stats` queries the database live and returns total telemetry count, total anomaly count, and system status
 - Logs are structured with timestamps and log levels so they are easy to read in the terminal
-- Also has a `/health` endpoint to confirm it is up and a `/` root endpoint
 
 **satellite_node.py**
 - Represents a single satellite
@@ -102,10 +105,12 @@ swarm-constellation/
 - Used by all services in docker-compose
 
 **docker-compose.yaml**
-- Defines 5 services: one ground station and four satellites (ALPHA, BRAVO, CHARLIE, DELTA)
+- Defines 7 services: ground station, four satellites (ALPHA, BRAVO, CHARLIE, DELTA), PostgreSQL, and Grafana
 - Each satellite gets a different orbit position via environment variables
 - Satellites only start after the ground station is ready
 - The `mission_data/` folder is mounted as a volume on all services so satellites can read the training baseline and the ground station can write the mission log
+- PostgreSQL runs on port 5432 with a named volume so data survives container restarts
+- Grafana runs on port 3000 and depends on the database being up before it starts
 - Each service has log rotation configured to cap log file size at 5MB
 
 ---
@@ -212,6 +217,72 @@ sudo chmod 777 swarm-constellation/mission_data/
 
 ---
 
+## Querying the database
+
+While the simulation is running, you can connect directly to the PostgreSQL container and run SQL queries.
+
+Open a shell inside the database container:
+
+```bash
+docker exec -it mission_control_db psql -U mission_user -d mission_telemetry
+```
+
+Useful queries once inside:
+
+View the latest 10 telemetry records:
+
+```sql
+SELECT * FROM telemetry ORDER BY timestamp DESC LIMIT 10;
+```
+
+Count all anomalies detected:
+
+```sql
+SELECT COUNT(*) FROM telemetry WHERE is_anomaly = TRUE;
+```
+
+See telemetry grouped by satellite:
+
+```sql
+SELECT sat_id, COUNT(*) AS pings FROM telemetry GROUP BY sat_id;
+```
+
+See only anomalous records with their temperatures:
+
+```sql
+SELECT sat_id, timestamp, lat, lon, temp FROM telemetry WHERE is_anomaly = TRUE ORDER BY timestamp DESC;
+```
+
+Type `\q` to exit the database shell.
+
+You can also hit the health stats endpoint without entering the container:
+
+```bash
+curl http://localhost:8000/health/stats
+```
+
+---
+
+## Grafana dashboard
+
+Once the stack is running, open Grafana at `http://localhost:3000` and log in with username `admin` and password `admin`.
+
+To connect it to your database, go to **Connections > Data Sources > Add new > PostgreSQL** and fill in:
+
+- Host: `db:5432`
+- Database: `mission_telemetry`
+- User: `mission_user`
+- Password: `space_password`
+- TLS/SSL Mode: disable
+
+Panels you can build:
+
+- **Geomap** — plot lat/lon columns to see all four satellites moving across the globe in real time
+- **Stat panel** — query `WHERE is_anomaly = TRUE` and set a red threshold to get an anomaly alert light
+- **Time-series graph** — plot the `temp` column over time to see temperature fluctuations as satellites pass over Darmstadt
+
+---
+
 ## How to run locally (no Docker)
 
 If you just want to test the orbital propagation without containers:
@@ -238,3 +309,5 @@ This runs three satellites directly in your terminal and updates every 2 seconds
 - [xarray](https://docs.xarray.dev/) for reading and querying the NetCDF sensor map
 - [netCDF4](https://unidata.github.io/netcdf4-python/) as the backend for reading NetCDF files
 - [scipy](https://scipy.org/) as a fallback backend for xarray NetCDF support
+- [sqlalchemy](https://www.sqlalchemy.org/) for talking to PostgreSQL from Python
+- [psycopg2-binary](https://www.psycopg.org/) as the PostgreSQL database driver

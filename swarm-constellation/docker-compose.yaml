@@ -85,3 +85,32 @@ services:
       options:
         max-size: "5m"
         max-file: "3"
+
+  db:
+    image: postgres:15
+    container_name: mission_control_db
+    restart: always
+    environment:
+      - POSTGRES_USER=mission_user
+      - POSTGRES_PASSWORD=space_password
+      - POSTGRES_DB=mission_telemetry
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: mission_control_viz
+    ports:
+      - "3000:3000"
+    depends_on:
+      - db
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_storage:/var/lib/grafana
+
+volumes:
+  postgres_data:
+  grafana_storage:

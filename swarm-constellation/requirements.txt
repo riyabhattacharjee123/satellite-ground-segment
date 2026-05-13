@@ -13,3 +13,6 @@ numpy
 xarray
 netCDF4
 scipy
+# Database
+sqlalchemy
+psycopg2-binary
