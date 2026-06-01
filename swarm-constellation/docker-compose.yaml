@@ -111,6 +111,40 @@ services:
     volumes:
       - grafana_storage:/var/lib/grafana
 
+  airflow-webserver:
+    image: apache/airflow:2.7.1
+    container_name: mission_control_airflow
+    restart: always
+    depends_on:
+      - db
+    environment:
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://mission_user:space_password@db:5432/mission_telemetry
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - _PIP_ADDITIONAL_REQUIREMENTS=xarray netCDF4 scipy joblib
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./scripts:/opt/airflow/scripts
+      - ./mission_data:/opt/airflow/mission_data
+    command: bash -c "airflow db migrate && (airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@mission.local || true) && airflow webserver"
+
+  airflow-scheduler:
+    image: apache/airflow:2.7.1
+    container_name: mission_control_scheduler
+    restart: always
+    depends_on:
+      - db
+    environment:
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://mission_user:space_password@db:5432/mission_telemetry
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - _PIP_ADDITIONAL_REQUIREMENTS=xarray netCDF4 scipy joblib
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./scripts:/opt/airflow/scripts
+      - ./mission_data:/opt/airflow/mission_data
+    command: scheduler
+
 volumes:
   postgres_data:
   grafana_storage:

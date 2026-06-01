@@ -3,6 +3,8 @@ import os
 import math
 import random
 import requests
+import numpy as np
+from joblib import Parallel, delayed
 from skyfield.api import Loader, wgs84, EarthSatellite
 from saliency_engine import SaliencyEngine  # AI module
 import xarray as xr # NetCDF processing
@@ -37,12 +39,28 @@ load = Loader('/app/data')
 ts = load.timescale()
 sat = EarthSatellite(TLE_L1, TLE_L2, SAT_NAME, ts)
 
-def get_distance(lat1, lon1, lat2, lon2):
-    R = 6371.0 # Earth radius in km
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    d_lat, d_lon = math.radians(lat2-lat1), math.radians(lon2-lon1)
-    a = math.sin(d_lat/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(d_lon/2)**2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+def calculate_haversine_distance(lat1, lon1, lat2, lon2):
+    R = 6371.0
+    phi1 = np.radians(lat1)
+    phi2 = np.radians(lat2)
+    delta_phi = np.radians(lat2 - lat1)
+    delta_lambda = np.radians(lon2 - lon1)
+    a = np.sin(delta_phi / 2.0)**2 + np.cos(phi1) * np.cos(phi2) * np.sin(delta_lambda / 2.0)**2
+    c = 2.0 * np.arctan2(np.sqrt(a), np.sqrt(1.0 - a))
+    return R * c
+
+def evaluate_single_coordinate(lat, lon, target_lat, target_lon, threshold_km):
+    distance = calculate_haversine_distance(lat, lon, target_lat, target_lon)
+    return distance <= threshold_km
+
+def parallel_grid_search(lat_array, lon_array, target_lat, target_lon, threshold_km):
+    flat_lats = lat_array.flatten()
+    flat_lons = lon_array.flatten()
+    results = Parallel(n_jobs=-1)(
+        delayed(evaluate_single_coordinate)(lat, lon, target_lat, target_lon, threshold_km)
+        for lat, lon in zip(flat_lats, flat_lons)
+    )
+    return np.array(results).reshape(lat_array.shape)
 
 print(f"[{SAT_NAME}] Deployment Complete. AI Engine Active.")
 
@@ -53,7 +71,7 @@ try:
         curr_lat, curr_lon = subpoint.latitude.degrees, subpoint.longitude.degrees
         current_alt = subpoint.elevation.km
         
-        dist = get_distance(curr_lat, curr_lon, TARGET_LAT, TARGET_LON)
+        dist = calculate_haversine_distance(curr_lat, curr_lon, TARGET_LAT, TARGET_LON)
         
         # Default Payload
         payload = {

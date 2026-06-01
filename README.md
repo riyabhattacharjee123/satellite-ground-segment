@@ -15,7 +15,9 @@ A home simulation of a distributed satellite ground segment. It models a small s
 - When a satellite flies over Darmstadt, it samples a temperature and asks the AI if it is normal or anomalous
 - Anomalous readings are flagged and sent as priority telemetry to the ground station
 - All telemetry is stored in a PostgreSQL database for permanent mission history
-- A Grafana dashboard is included for live visualization of satellite positions, temperatures, and anomalies
+- A Grafana dashboard visualizes satellite positions on a live world map, total pings, and anomaly alerts
+- Apache Airflow runs two automated pipelines: one refreshes the global sensor map every hour, the other builds a clean retraining dataset from flagged anomalies every day
+- The sensor map generation and satellite grid calculations use joblib to distribute work across all available CPU cores in parallel
 
 ---
 
@@ -33,6 +35,9 @@ swarm-constellation/
     scripts/
         generate_training_data.py   generates the Darmstadt baseline dataset
         generate_sensor_data.py     generates the global NetCDF sensor map
+    dags/
+        sensor_update_dag.py        Airflow DAG that refreshes the NetCDF sensor map every hour
+        anomaly_processing_dag.py   Airflow DAG that builds a retraining payload from anomalies daily
     src/
         ground_station.py   the ground station, runs a web API on port 8000
         satellite_node.py   one satellite node, designed to run inside Docker
@@ -63,7 +68,7 @@ swarm-constellation/
 - Every 5 seconds it calculates its distance to Darmstadt, Germany using the Haversine formula
 - Outside the 5000 km range: sends a simple heartbeat with just position data
 - Inside the 5000 km range (access window): reads the real surface temperature from the NetCDF map at its current lat/lon using xarray, runs it through the AI, and sends telemetry with an anomaly flag
-- If the NetCDF file is not available, it falls back to a simulated temperature reading so the satellite keeps running
+- Includes a parallel grid search engine using joblib that distributes coordinate evaluations across all CPU cores
 - If the ground station is unreachable, it carries on silently and tries again next cycle
 
 **saliency_engine.py**
@@ -83,6 +88,7 @@ swarm-constellation/
 **generate_sensor_data.py**
 - Generates a synthetic global surface temperature map and saves it as a NetCDF file
 - Creates a 180x360 lat/lon grid with base temperatures modelled on real climate patterns (warm at equator, cold at poles)
+- Builds the anomaly mask in parallel using joblib, distributing the 64,800 coordinate evaluations across all available CPU cores
 - Injects a heatwave anomaly of 50°C within a 2-degree radius of Darmstadt so the satellites have something to detect
 - Saves to `mission_data/global_sensor_data.nc`
 - Run this once before starting the Docker simulation so the satellites have a sensor map to read from
@@ -105,13 +111,26 @@ swarm-constellation/
 - Used by all services in docker-compose
 
 **docker-compose.yaml**
-- Defines 7 services: ground station, four satellites (ALPHA, BRAVO, CHARLIE, DELTA), PostgreSQL, and Grafana
+- Defines 9 services: ground station, four satellites (ALPHA, BRAVO, CHARLIE, DELTA), PostgreSQL, Grafana, Airflow webserver, and Airflow scheduler
 - Each satellite gets a different orbit position via environment variables
 - Satellites only start after the ground station is ready
 - The `mission_data/` folder is mounted as a volume on all services so satellites can read the training baseline and the ground station can write the mission log
 - PostgreSQL runs on port 5432 with a named volume so data survives container restarts
 - Grafana runs on port 3000 and depends on the database being up before it starts
+- Airflow webserver runs on port 8080 and shares the same PostgreSQL database for its own metadata
+- Both Airflow services mount the `dags/` and `scripts/` folders so pipelines can access the generation scripts
 - Each service has log rotation configured to cap log file size at 5MB
+
+**sensor_update_dag.py**
+- Runs on an hourly schedule inside Apache Airflow
+- Calls the sensor map generator to produce a fresh NetCDF file every hour
+- Ensures the satellite constellation always reads from an up-to-date global temperature map
+
+**anomaly_processing_dag.py**
+- Runs on a daily schedule inside Apache Airflow
+- Connects directly to the PostgreSQL database and pulls all telemetry rows where `is_anomaly = True`
+- Cleans the data by dropping rows with missing coordinates and deduplicating by location zone, keeping the highest temperature reading per zone
+- Saves the result to `mission_data/retraining_payload.csv` so the AI model can be retrained if climate drift is detected
 
 ---
 
@@ -275,11 +294,29 @@ To connect it to your database, go to **Connections > Data Sources > Add new > P
 - Password: `space_password`
 - TLS/SSL Mode: disable
 
-Panels you can build:
+The dashboard has three panels:
 
-- **Geomap** — plot lat/lon columns to see all four satellites moving across the globe in real time
-- **Stat panel** — query `WHERE is_anomaly = TRUE` and set a red threshold to get an anomaly alert light
-- **Time-series graph** — plot the `temp` column over time to see temperature fluctuations as satellites pass over Darmstadt
+- **Number of satellite pings** — a stat panel showing the total telemetry count from all four satellites, refreshing every 5 seconds
+- **Anomaly Alert** — a stat panel showing the total number of anomalous readings detected across the mission, highlighted in red
+- **Satellite live map** — a geomap panel plotting every satellite position as a track across the globe, colour-coded green for normal readings and red for anomalies, so you can see exactly where the heatwave was detected
+
+---
+
+## Apache Airflow
+
+Once the stack is running, open Airflow at `http://localhost:8080` and log in with username `admin` and password `admin`.
+
+Two pipelines run automatically:
+
+**satellite_sensor_ingestion** (runs every hour)
+- Regenerates the global NetCDF sensor map so the constellation always has fresh data to sample
+
+**mlops_anomaly_processing** (runs every day)
+- Pulls all anomalous telemetry from the database, deduplicates it by location, and saves a clean CSV to `mission_data/retraining_payload.csv`
+
+To trigger either pipeline manually, click the play button next to its name on the DAGs screen.
+
+The retraining payload is what you would feed into a new training run of the IsolationForest model if real-world readings started drifting away from the baseline.
 
 ---
 
@@ -305,7 +342,7 @@ This runs three satellites directly in your terminal and updates every 2 seconds
 - [pandas](https://pandas.pydata.org/) for generating and handling the training dataset
 - [numpy](https://numpy.org/) for the sine wave and noise calculations in the training data
 - [scikit-learn](https://scikit-learn.org/) for the IsolationForest anomaly detection model
-- [joblib](https://joblib.readthedocs.io/) for model serialisation used by scikit-learn internally
+- [joblib](https://joblib.readthedocs.io/) for parallel grid processing across CPU cores and model serialisation
 - [xarray](https://docs.xarray.dev/) for reading and querying the NetCDF sensor map
 - [netCDF4](https://unidata.github.io/netcdf4-python/) as the backend for reading NetCDF files
 - [scipy](https://scipy.org/) as a fallback backend for xarray NetCDF support
