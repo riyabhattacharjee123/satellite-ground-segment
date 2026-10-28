@@ -18,6 +18,8 @@ A home simulation of a distributed satellite ground segment. It models a small s
 - A Grafana dashboard visualizes satellite positions on a live world map, total pings, and anomaly alerts
 - Apache Airflow runs two automated pipelines: one refreshes the global sensor map every hour, the other builds a clean retraining dataset from flagged anomalies every day
 - The sensor map generation and satellite grid calculations use joblib to distribute work across all available CPU cores in parallel
+- Terraform in `infra/aws/` sets up AWS for the ground segment: a host in a private subnet with no public IP and no inbound ports, reached over Tailscale (work in progress)
+- The AWS setup uses a least-privilege IAM role, a KMS-encrypted S3 bucket for telemetry and CloudTrail audit logging
 
 ---
 
@@ -43,6 +45,18 @@ swarm-constellation/
         satellite_node.py   one satellite node, designed to run inside Docker
         saliency_engine.py  the AI anomaly detection brain used by each satellite
         constellation.py    standalone local script, no Docker needed
+infra/
+    aws/
+        versions.tf             Terraform and AWS provider versions
+        variables.tf            region, network ranges, instance size, Tailscale key parameter
+        network.tf              VPC, public and private subnets, NAT gateway, S3 endpoint, security group
+        iam.tf                  least-privilege role for the host
+        storage.tf              KMS key and the encrypted telemetry bucket
+        audit.tf                CloudTrail trail and its log bucket
+        compute.tf              the Ubuntu host in the private subnet
+        user_data.sh.tftpl      first boot: Docker, Tailscale and a copy of this repo
+        outputs.tf              instance ID, bucket names, Grafana URL
+        README.md               how to deploy it, what it costs, next steps
 ```
 
 ---
