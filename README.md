@@ -320,6 +320,12 @@ The retraining payload is what you would feed into a new training run of the Iso
 
 ---
 
+## Running on AWS (work in progress)
+
+The `infra/aws/` folder has Terraform that runs the ground segment on a private AWS host. It has no public IP and no open inbound ports; Grafana, Airflow and SSH are reached over Tailscale. See [infra/aws/README.md](infra/aws/README.md) for what it creates and how to deploy it.
+
+---
+
 ## How to run locally (no Docker)
 
 If you just want to test the orbital propagation without containers:

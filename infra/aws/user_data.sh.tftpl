@@ -1,0 +1,20 @@
+#!/bin/bash
+# First boot: Docker, Tailscale and a copy of the repository.
+# Starting the stack is still a manual step (see infra/aws/README.md).
+set -euo pipefail
+
+apt-get update
+apt-get install -y docker.io docker-compose-v2 git
+systemctl enable --now docker
+usermod -aG docker ubuntu
+
+# The auth key comes from SSM Parameter Store, so it is never in Terraform state or in this file
+snap install aws-cli --classic
+TS_KEY=$(/snap/bin/aws ssm get-parameter --region "${aws_region}" --name "${tailscale_parameter}" \
+  --with-decryption --query Parameter.Value --output text)
+
+curl -fsSL https://tailscale.com/install.sh | sh
+tailscale up --auth-key="$TS_KEY" --hostname="${hostname}" --ssh
+
+git clone "${repo_url}" /opt/satellite-ground-segment
+chown -R ubuntu:ubuntu /opt/satellite-ground-segment
